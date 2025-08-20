@@ -9,7 +9,7 @@ build_info = true
 extra_output = ["storageLayout"]
 gas_reports = ["*"]
 
-solc_version='0.8.27'
+solc_version='0.8.28'
 optimizer = true
 optimizer-runs = 200
 via_ir = true

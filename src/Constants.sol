@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.27;
+pragma solidity ^0.8.28;
 
 library Constants {
     bytes8 constant magic_bytes = 0x3437353435343336; // hex(hex("GTT6")) Testnet
