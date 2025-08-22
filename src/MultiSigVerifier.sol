@@ -67,13 +67,14 @@ contract MultiSigVerifier {
     function updateOwners(
         address[] calldata newOwners,
         uint256 newRequired,
+        bytes32 noteHash,
         bytes[] calldata signatures
     ) external {
         require(newOwners.length > 0, "Owners required");
         require(newRequired > 0 && newRequired <= newOwners.length, "Invalid threshold");
 
         // Build the action hash (pure content to be changed)
-        bytes32 actionHash = keccak256(abi.encode(newOwners, newRequired));
+        bytes32 actionHash = keccak256(abi.encode(newOwners, newRequired, noteHash));
 
         // Domain-separated, nonce-bound message
         bytes32 typeHash = keccak256(
