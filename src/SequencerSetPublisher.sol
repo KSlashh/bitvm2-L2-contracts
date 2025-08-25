@@ -87,8 +87,7 @@ contract SequencerSetPublisher is Initializable, OwnableUpgradeable, ISequencerS
         uint num_majority = 0;
         for (uint i=0; i<total_number_publishers; i++) {
             bytes32 cmt = height_publisher_cmt[latest_height][publishers[i]];
-            require(cmt != bytes32(0), InvalidSequencerSet());
-            if (cmt_cnt[cmt] > num_majority) {
+            if (cmt != bytes32(0) && cmt_cnt[cmt] > num_majority) {
                 num_majority = cmt_cnt[cmt];
                 cmt_of_majority = cmt; 
             }
