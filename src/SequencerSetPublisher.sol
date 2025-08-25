@@ -66,22 +66,27 @@ contract SequencerSetPublisher is Initializable, OwnableUpgradeable, ISequencerS
         latest_height = ss.goat_block_number;
     }
 
-    // Update publisher at once by multi-sig
+    /// @notice Update publishers. 
+    /// @param newOwners The new publishers
+    /// @param changeOwnerSigs The signatures for changing owners, signed by old signers 
+    /// @param ss The latest sequencer set metadata 
+    /// @param sequencerSetCmtSig The signature of the metadata 
     function updatePublisherSet(
         address[] calldata newOwners,
-        bytes[] calldata signatures,
+        bytes[] calldata changeOwnerSigs,
         SequencerSet calldata ss,
         bytes calldata sequencerSetCmtSig
     ) external override {
-        // if there is no agreement on the latest sequencer set update, it should panic.
+        // if there is no agreement on the latest sequencer set, it should panic.
         bytes32 previous_cmt = calcSequencerSetCmtAtHeightOrLatest(latest_height); 
         this.updateSequencerSet(ss, sequencerSetCmtSig);
         // ensure valid sigs >= 2/3
         uint quorum = (newOwners.length * 2 + 1)/3; 
-        multiSigVerifier.updateOwners(newOwners, quorum, previous_cmt, signatures);
+        multiSigVerifier.updateOwners(newOwners, quorum, previous_cmt, changeOwnerSigs);
     }
 
-    // Anyone can calculate the commitment for a given height, and publish it to Bitcoin
+    /// @notice Check if we have an aggrement on the cmt of given height.
+    /// @param height Use latest_height if the height is larger than latest_height
     function calcSequencerSetCmtAtHeightOrLatest(uint256 height) public view returns (bytes32) {
         if (height > latest_height) {
             height = latest_height;
