@@ -13,8 +13,8 @@ contract SequencerSetPublisher is Initializable, OwnableUpgradeable, ISequencerS
     using ECDSA for bytes32;
     using MessageHashUtils for bytes32;
   
-    mapping(uint256 height => bytes32[] cmts) public height_cmts;
-    mapping(bytes32 cmt => SequencerSet[] ss) public cmt_ss;
+    mapping(uint256 height => mapping(address publisher => bytes32 cmt)) public height_publisher_cmt;
+    mapping(bytes32 cmt => uint cnt) cmt_cnt;
 
     uint256 latest_height;
     MultiSigVerifier multiSigVerifier;
@@ -29,9 +29,9 @@ contract SequencerSetPublisher is Initializable, OwnableUpgradeable, ISequencerS
     error P2WSHSignatureMismatch();
     error DoubleCommit();
     error InvalidSequencerSet();
+    error InvalidQuorumSequencerSet();
     error MismatchPublisher();
     error InvalidGOATHeight();
-    error InvalidVotingPower();
 
     /// @notice Publish a new sequencer set, which should be signed by the older publishers.
     /// @param ss The Sequencer Set 
@@ -40,12 +40,9 @@ contract SequencerSetPublisher is Initializable, OwnableUpgradeable, ISequencerS
         SequencerSet calldata ss,
         bytes calldata signature
     ) external override {
-        // Check goat block number is valid
         require(ss.goat_block_number >= latest_height, InvalidGOATHeight());
-        require(ss.voting_power > 0, InvalidVotingPower());
         require(msg.sender == ss.p2wsh_sig_hash.recover(signature), P2WSHSignatureMismatch());
-
-        // ensure the publishers is not changed.
+        // Ensure the publisher set is not changed.
         bytes32 expectedPublishersHash = keccak256(
             abi.encodePacked(multiSigVerifier.getOwners())
         ); 
@@ -54,65 +51,49 @@ contract SequencerSetPublisher is Initializable, OwnableUpgradeable, ISequencerS
         bytes32 cmt = keccak256(
             abi.encodePacked(ss.sequencer_set_hash, ss.next_sequencer_set_hash, ss.goat_block_number, ss.publishers_hash)
         );
+        // Avoid double commit
+        require(height_publisher_cmt[ss.goat_block_number][msg.sender] == bytes32(0), DoubleCommit());
 
-        // Avoid double-commit
-        bytes32[] memory cur_cmts = height_cmts[ss.goat_block_number];
-        for (uint i=0; i<cur_cmts.length; i++) {
-            require(cur_cmts[i] != cmt, DoubleCommit());
-        }
-
-        height_cmts[ss.goat_block_number].push(cmt);
-        cmt_ss[cmt].push(ss);
+        height_publisher_cmt[ss.goat_block_number][msg.sender] = cmt;
+        cmt_cnt[cmt] += 1;
         latest_height = ss.goat_block_number;
     }
 
     /// @notice Update publishers. 
     /// @param newOwners The new publishers
     /// @param changeOwnerSigs The signatures for changing owners, signed by old signers 
-    /// @param sss The latest sequencer set metadata 
+    /// @param ss The latest sequencer set metadata 
     /// @param sequencerSetCmtSigs The signature of the metadata 
     function updatePublisherSet(
         address[] calldata newOwners,
         bytes[] calldata changeOwnerSigs,
-        SequencerSet[] calldata sss,
-        bytes[] calldata sequencerSetCmtSigs
+        SequencerSet calldata ss,
+        bytes calldata sequencerSetCmtSigs
     ) external override {
         // if there is no agreement on the latest sequencer set, it should panic.
-        bytes32 previous_cmt = calcSequencerSetCmtAtHeightOrLatest(latest_height); 
-        for (uint i = 0; i < sss.length; i ++) {
-            this.updateSequencerSet(sss[i], sequencerSetCmtSigs[i]);
-        }
+        bytes32 previous_cmt = calcMajoritySequencerSetCmtAtHeightOrLatest(); 
+        this.updateSequencerSet(ss, sequencerSetCmtSigs);
         // ensure valid sigs >= 2/3
         uint quorum = (newOwners.length * 2 + 1)/3; 
         multiSigVerifier.updateOwners(newOwners, quorum, previous_cmt, changeOwnerSigs);
     }
 
-    /// @notice Check if we have an aggrement on the cmt of given height.
-    /// @param height Use latest_height if the height is larger than latest_height
-    function calcSequencerSetCmtAtHeightOrLatest(uint256 height) public view returns (bytes32) {
-        if (height > latest_height) {
-            height = latest_height;
-        }
-
-        bytes32[] memory cmts = height_cmts[height];
-        require(cmts.length > 0);
-
-        bytes32 cmt_with_max_power = 0; 
-        uint max_power = 0;
-        uint total_power = 0;
-        for (uint i=0; i<cmts.length; i++) {
-            SequencerSet[] memory ss = cmt_ss[cmts[i]];
-            uint power = 0; 
-            for (uint j=0; j < ss.length; j++) {
-                power += ss[j].voting_power; 
+    /// @notice Check if we have an aggrement on the cmt of the latest height.
+    function calcMajoritySequencerSetCmtAtHeightOrLatest() public view returns (bytes32) {
+        address[] memory publishers = multiSigVerifier.getOwners();
+        // Check if we have 2/3 publishers signed
+        uint total_number_publishers = publishers.length;
+        bytes32 cmt_of_majority = 0; 
+        uint num_majority = 0;
+        for (uint i=0; i<total_number_publishers; i++) {
+            bytes32 cmt = height_publisher_cmt[latest_height][publishers[i]];
+            require(cmt != bytes32(0), InvalidSequencerSet());
+            if (cmt_cnt[cmt] > num_majority) {
+                num_majority = cmt_cnt[cmt];
+                cmt_of_majority = cmt; 
             }
-            if (power > max_power) {
-               max_power = power;
-               cmt_with_max_power = cmts[i]; 
-            }
-            total_power += power;
-        }
-        require(max_power * 3 >= 2 * total_power, InvalidSequencerSet());
-        return cmt_with_max_power;
+        } 
+        require(num_majority * 3 >= 2 * total_number_publishers, InvalidQuorumSequencerSet());
+        return cmt_of_majority;
     }
 }
