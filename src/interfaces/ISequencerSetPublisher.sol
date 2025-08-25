@@ -20,7 +20,7 @@ interface ISequencerSetPublisher {
     function updatePublisherSet(
         address[] calldata newOwners,
         bytes[] calldata signatures,
-        SequencerSet calldata ss,
-        bytes calldata sequencerSetCmtSig
+        SequencerSet[] calldata sss,
+        bytes[] calldata sequencerSetCmtSigs
     ) external; 
 }
