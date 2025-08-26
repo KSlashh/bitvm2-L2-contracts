@@ -16,7 +16,7 @@ contract SequencerSetPublisher is Initializable, OwnableUpgradeable, ISequencerS
     mapping(uint256 height => mapping(address publisher => bytes32 cmt)) public height_publisher_cmt;
     mapping(bytes32 cmt => uint cnt) cmt_cnt;
 
-    uint256 latest_height;
+    uint256 public latest_height;
     MultiSigVerifier multiSigVerifier;
 
     function initialize(address initialOwner, address[] calldata initPublishers) public initializer {
