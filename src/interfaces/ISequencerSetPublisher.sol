@@ -10,6 +10,13 @@ interface ISequencerSetPublisher {
         uint256 goat_block_number;
     }
 
+    error P2WSHSignatureMismatch();
+    error DoubleCommit();
+    error InvalidSequencerSet();
+    error InvalidQuorumSequencerSet();
+    error MismatchPublisher();
+    error InvalidGOATHeight();
+
     function updateSequencerSet(
         SequencerSet calldata ss,
         bytes calldata signature
@@ -18,8 +25,6 @@ interface ISequencerSetPublisher {
      // Update publisher at once by multi-sig
     function updatePublisherSet(
         address[] calldata newOwners,
-        bytes[] calldata signatures,
-        SequencerSet calldata ss,
-        bytes calldata sequencerSetCmtSigs
+        bytes[] calldata signatures
     ) external; 
 }

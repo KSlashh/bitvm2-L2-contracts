@@ -124,7 +124,7 @@ contract MultiSigVerifierTest is Test {
         bytes[] memory sigs = new bytes[](1);
         sigs[0] = _signUpdate(1, newOwners, newRequired, noteHash, verifier.nonce());
 
-        vm.expectRevert("Not enough valid owner sigs");
+        vm.expectRevert("No enough valid owner sigs");
         verifier.updateOwners(newOwners, newRequired, noteHash, sigs);
     }
 
@@ -142,7 +142,7 @@ contract MultiSigVerifierTest is Test {
         verifier.updateOwners(newOwners, newRequired, noteHash, sigs);
 
         // Try replay with same signatures and same nonce
-        vm.expectRevert("Not enough valid owner sigs");
+        vm.expectRevert("No enough valid owner sigs");
         verifier.updateOwners(newOwners, newRequired, noteHash, sigs);
     }
 }
