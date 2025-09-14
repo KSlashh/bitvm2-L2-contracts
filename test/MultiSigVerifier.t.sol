@@ -81,9 +81,7 @@ contract MultiSigVerifierTest is Test {
         bytes32 noteHash,
         uint256 nonce
     ) internal view returns (bytes memory sig) {
-        bytes32 actionHash = keccak256(abi.encode(newOwners, newRequired, noteHash));
-        bytes32 typeHash   = keccak256("UPDATE_OWNERS(address contract,uint256 nonce,bytes32 action)");
-        bytes32 digest     = keccak256(abi.encode(typeHash, address(verifier), nonce, actionHash));
+        bytes32 digest = keccak256(abi.encode(nonce, newOwners, newRequired, noteHash));
 
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(privKey, digest);
         sig = abi.encodePacked(r, s, v);
