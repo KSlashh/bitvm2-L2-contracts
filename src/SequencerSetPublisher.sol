@@ -8,8 +8,6 @@ import "@openzeppelin/contracts/utils/cryptography/MessageHashUtils.sol";
 import "./MultiSigVerifier.sol";
 import "./interfaces/ISequencerSetPublisher.sol";
 
-import "forge-std/console.sol";
-
 // Sequencer Set Publisher
 contract SequencerSetPublisher is Initializable, OwnableUpgradeable, ISequencerSetPublisher {
     using ECDSA for bytes32;
@@ -38,15 +36,11 @@ contract SequencerSetPublisher is Initializable, OwnableUpgradeable, ISequencerS
     ) external override {
         require(ss.goat_block_number >= latest_height, InvalidGOATHeight());
         require(multiSigVerifier.isOwner(msg.sender), MismatchPublisher());
-        console.log("new height", ss.goat_block_number);
-        console.log("msg.sender", msg.sender);
-        console.log("ss.p2wsh_sig_hash.recover(signature)", ss.p2wsh_sig_hash.recover(signature));
         require(msg.sender == ss.p2wsh_sig_hash.recover(signature), P2WSHSignatureMismatch());
         // Ensure the publisher set is not changed.
         bytes32 expectedPublishersHash = keccak256(
             abi.encodePacked(multiSigVerifier.getOwners())
         ); 
-        console.logBytes32(expectedPublishersHash);
         require(ss.publishers_hash == expectedPublishersHash, MismatchPublisher());
 
         bytes32 cmt = keccak256(
@@ -84,7 +78,6 @@ contract SequencerSetPublisher is Initializable, OwnableUpgradeable, ISequencerS
         if (latest_height == 0) {
             return bytes32("1");
         }
-        console.log("height", latest_height);
         address[] memory publishers = multiSigVerifier.getOwners();
         // Check if we have 2/3 publishers signed
         uint total_number_publishers = publishers.length;
@@ -92,18 +85,11 @@ contract SequencerSetPublisher is Initializable, OwnableUpgradeable, ISequencerS
         uint num_majority = 0;
         for (uint i=0; i<total_number_publishers; i++) {
             bytes32 cmt = height_publisher_cmt[latest_height][publishers[i]];
-            console.log("i", i);
-            console.log(latest_height);
-            console.log(publishers[i]);
-            console.logBytes32(cmt);
-            console.log(cmt_cnt[cmt]);
             if (cmt != bytes32(0) && cmt_cnt[cmt] > num_majority) {
                 num_majority = cmt_cnt[cmt];
                 cmt_of_majority = cmt; 
             }
         } 
-        console.log("num_majority: ", num_majority);
-        console.log("total_number_pub: ", total_number_publishers);
         require(num_majority * 3 >= 2 * total_number_publishers, InvalidQuorumSequencerSet());
         return cmt_of_majority;
     }

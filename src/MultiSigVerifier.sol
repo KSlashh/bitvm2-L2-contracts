@@ -4,8 +4,6 @@ pragma solidity ^0.8.28;
 import "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
 import "@openzeppelin/contracts/utils/cryptography/MessageHashUtils.sol";
 
-import "forge-std/console.sol";
-
 /// @title Simple Multi-Signature Verifier with Owner Rotation and Anti-Replay
 contract MultiSigVerifier {
     using ECDSA for bytes32;
@@ -50,9 +48,7 @@ contract MultiSigVerifier {
         require(newOwners.length > 0, "Owners required");
         require(newRequired > 0 && newRequired <= newOwners.length, "Invalid threshold");
 
-        console.log("nonce", nonce);
         bytes32 digest = keccak256(abi.encode(nonce, newOwners, newRequired, noteHash));
-        console.logBytes32(digest);
 
         require(_verifyCurrentOwners(digest, signatures), "No enough valid owner sigs");
 
@@ -112,7 +108,6 @@ contract MultiSigVerifier {
 
         for (uint256 i = 0; i < signatures.length; i++) {
             address signer = digest.recover(signatures[i]);
-            console.log("signers", signer);
             if (isOwner[signer] && !_alreadySigned(seen, signer, validSignatures)) {
                 seen[validSignatures] = signer;
                 validSignatures++;

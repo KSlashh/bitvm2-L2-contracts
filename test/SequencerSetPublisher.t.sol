@@ -4,7 +4,6 @@ pragma solidity ^0.8.28;
 import {ECDSA} from "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
 import "@openzeppelin/contracts/utils/cryptography/MessageHashUtils.sol";
 import "forge-std/Test.sol";
-import "forge-std/console.sol";
 import "../src/SequencerSetPublisher.sol";
 import "../src/MultiSigVerifier.sol";
 import "../src/interfaces/ISequencerSetPublisher.sol";
@@ -40,14 +39,11 @@ contract SequencerSetPublisherTest is Test {
         address[] memory oldPublishers = new address[](oldPublisherKeys.length);
         for (uint i = 0; i < oldPublisherKeys.length; i++) {
             oldPublishers[i] = vm.addr(oldPublisherKeys[i]);
-            console.log(oldPublishers[i]);
         }
 
-        console.log("new");
         address[] memory newPublishers = new address[](newPublisherKeys.length);
         for (uint i = 0; i < newPublisherKeys.length; i++) {
             newPublishers[i] = vm.addr(newPublisherKeys[i]);
-            console.log(newPublishers[i]);
         }
 
         //ISequencerSetPublisher.SequencerSet memory ss = ISequencerSetPublisher.SequencerSet({
@@ -57,20 +53,15 @@ contract SequencerSetPublisherTest is Test {
         //    publishers_hash: keccak256(abi.encodePacked(publisher.multiSigVerifier().getOwners())),
         //    p2wsh_sig_hash: keccak256("sig").toEthSignedMessageHash()
         //});
-        //console.logBytes32(ss.publishers_hash);
 
         bytes32 prevCmt = publisher.calcMajoritySequencerSetCmtAtHeightOrLatest();    
-        console.logBytes32(prevCmt);
         uint256 nonce = publisher.multiSigVerifier().nonce();
-        console.log("nonce", nonce);
         uint newRequired = (newPublishers.length * 2 + 2)/3; 
         bytes32 digest = keccak256(abi.encode(nonce, newPublishers, newRequired, prevCmt));
-        console.logBytes32(digest);
 
         uint oldRequired = (oldPublishers.length * 2 + 2)/3; 
 
         bytes[] memory sigs = new bytes[](oldRequired);
-        console.log("signing number", oldRequired);
         for (uint j = 0; j < oldRequired; j ++) {
             (uint8 v, bytes32 r, bytes32 s) = vm.sign(oldPublisherKeys[j], digest);
             sigs[j] = abi.encodePacked(r, s, v);
@@ -112,7 +103,6 @@ contract SequencerSetPublisherTest is Test {
        address[] memory oldPublishers = new address[](publisherKeys.length);
        for (uint i = 0; i < publisherKeys.length; i++) {
            oldPublishers[i] = vm.addr(publisherKeys[i]);
-           console.log(oldPublishers[i]);
        }
 
        ISequencerSetPublisher.SequencerSet memory ss = ISequencerSetPublisher.SequencerSet({
