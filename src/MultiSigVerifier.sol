@@ -42,13 +42,14 @@ contract MultiSigVerifier {
     function updateOwners(
         address[] calldata newOwners,
         uint256 newRequired,
-        bytes32 noteHash,
+        bytes32 prevCmt,
+        bytes32 p2wshSigHash,
         bytes[] calldata signatures
     ) external {
         require(newOwners.length > 0, "Owners required");
         require(newRequired > 0 && newRequired <= newOwners.length, "Invalid threshold");
 
-        bytes32 digest = keccak256(abi.encode(nonce, newOwners, newRequired, noteHash));
+        bytes32 digest = keccak256(abi.encode(nonce, newOwners, newRequired, prevCmt, p2wshSigHash));
 
         require(_verifyCurrentOwners(digest, signatures), "No enough valid owner sigs");
 

@@ -25,6 +25,7 @@ interface ISequencerSetPublisher {
      // Update publisher at once by multi-sig
     function updatePublisherSet(
         address[] calldata newOwners,
-        bytes[] calldata signatures
+        bytes[] calldata signatures,
+        bytes32 p2wshSigHash
     ) external; 
 }

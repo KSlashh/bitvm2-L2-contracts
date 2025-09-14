@@ -35,7 +35,7 @@ contract SequencerSetPublisherTest is Test {
         assertEq(owners[0], initPublishers[0]);
     }
 
-    function run_publisher_update_test(uint256[] memory oldPublisherKeys, uint256[] memory newPublisherKeys, uint256 height) public {
+    function run_publisher_update_test(uint256[] memory oldPublisherKeys, uint256[] memory newPublisherKeys, bytes32 p2wshSigHash) public {
         address[] memory oldPublishers = new address[](oldPublisherKeys.length);
         for (uint i = 0; i < oldPublisherKeys.length; i++) {
             oldPublishers[i] = vm.addr(oldPublisherKeys[i]);
@@ -46,18 +46,10 @@ contract SequencerSetPublisherTest is Test {
             newPublishers[i] = vm.addr(newPublisherKeys[i]);
         }
 
-        //ISequencerSetPublisher.SequencerSet memory ss = ISequencerSetPublisher.SequencerSet({
-        //    sequencer_set_hash: keccak256("set1"),
-        //    next_sequencer_set_hash: keccak256("set2"),
-        //    goat_block_number: height,
-        //    publishers_hash: keccak256(abi.encodePacked(publisher.multiSigVerifier().getOwners())),
-        //    p2wsh_sig_hash: keccak256("sig").toEthSignedMessageHash()
-        //});
-
         bytes32 prevCmt = publisher.calcMajoritySequencerSetCmtAtHeightOrLatest();    
         uint256 nonce = publisher.multiSigVerifier().nonce();
         uint newRequired = (newPublishers.length * 2 + 2)/3; 
-        bytes32 digest = keccak256(abi.encode(nonce, newPublishers, newRequired, prevCmt));
+        bytes32 digest = keccak256(abi.encode(nonce, newPublishers, newRequired, prevCmt, p2wshSigHash));
 
         uint oldRequired = (oldPublishers.length * 2 + 2)/3; 
 
@@ -67,7 +59,7 @@ contract SequencerSetPublisherTest is Test {
             sigs[j] = abi.encodePacked(r, s, v);
         }
         vm.startPrank(oldPublishers[1]);
-        publisher.updatePublisherSet(newPublishers, sigs);
+        publisher.updatePublisherSet(newPublishers, sigs, p2wshSigHash);
         vm.stopPrank();
 
         MultiSigVerifier verifier = publisher.multiSigVerifier();
@@ -89,14 +81,15 @@ contract SequencerSetPublisherTest is Test {
         batch1[2] = 23;
         batch1[3] = 24;
         batch1[4] = 25;
-        run_publisher_update_test(batch, batch1, 11);
+        run_publisher_update_test(batch, batch1, keccak256("publisher p2wsh sig hash"));
         run_sequencer_update_test(batch1, 12, keccak256("commit2"));
 
         uint256[] memory batch2 = new uint256[](3);
         batch2[0] = 31;
         batch2[1] = 32;
         batch2[2] = 33;
-        run_publisher_update_test(batch1, batch2, 13);
+        run_publisher_update_test(batch1, batch2, keccak256("publisher p2wsh sig hash2"));
+        run_sequencer_update_test(batch2, 13, keccak256("commit3"));
     }
 
     function run_sequencer_update_test(uint256[] memory publisherKeys, uint256 height, bytes32 commits) public {

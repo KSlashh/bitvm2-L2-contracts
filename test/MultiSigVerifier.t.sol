@@ -78,10 +78,11 @@ contract MultiSigVerifierTest is Test {
         uint256 privKey,
         address[] memory newOwners,
         uint256 newRequired,
-        bytes32 noteHash,
+        bytes32 prevCmt,
+        bytes32 p2wshSigHash,
         uint256 nonce
     ) internal view returns (bytes memory sig) {
-        bytes32 digest = keccak256(abi.encode(nonce, newOwners, newRequired, noteHash));
+        bytes32 digest = keccak256(abi.encode(nonce, newOwners, newRequired, prevCmt, p2wshSigHash));
 
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(privKey, digest);
         sig = abi.encodePacked(r, s, v);
@@ -93,14 +94,15 @@ contract MultiSigVerifierTest is Test {
         newOwners[0] = newOwner1;
         newOwners[1] = newOwner2;
         uint256 newRequired = 2;
-        bytes32 noteHash = keccak256("rotation-1");
+        bytes32 prevCmt = keccak256("rotation-1");
+        bytes32 p2wshSigHash = keccak256("rotation-1");
 
         // Sign with alice (privKey=1) and bob (privKey=2)
         bytes[] memory sigs = new bytes[](2);
-        sigs[0] = _signUpdate(1, newOwners, newRequired, noteHash, verifier.nonce());
-        sigs[1] = _signUpdate(2, newOwners, newRequired, noteHash, verifier.nonce());
+        sigs[0] = _signUpdate(1, newOwners, newRequired, prevCmt, p2wshSigHash, verifier.nonce());
+        sigs[1] = _signUpdate(2, newOwners, newRequired, prevCmt, p2wshSigHash, verifier.nonce());
 
-        verifier.updateOwners(newOwners, newRequired, noteHash, sigs);
+        verifier.updateOwners(newOwners, newRequired, prevCmt, p2wshSigHash, sigs);
 
         address[] memory ownersOut = verifier.getOwners();
         assertEq(ownersOut.length, 2);
@@ -116,14 +118,15 @@ contract MultiSigVerifierTest is Test {
         newOwners[0] = newOwner1;
         newOwners[1] = newOwner2;
         uint256 newRequired = 2;
-        bytes32 noteHash = keccak256("rotation-2");
+        bytes32 prevCmt = keccak256("rotation-2");
+        bytes32 p2wshSigHash = keccak256("rotation-2");
 
         // Only Alice signs
         bytes[] memory sigs = new bytes[](1);
-        sigs[0] = _signUpdate(1, newOwners, newRequired, noteHash, verifier.nonce());
+        sigs[0] = _signUpdate(1, newOwners, newRequired, prevCmt, p2wshSigHash, verifier.nonce());
 
         vm.expectRevert("No enough valid owner sigs");
-        verifier.updateOwners(newOwners, newRequired, noteHash, sigs);
+        verifier.updateOwners(newOwners, newRequired, prevCmt, p2wshSigHash, sigs);
     }
 
     function testUpdateOwnersFail_ReusedNonce() public {
@@ -131,16 +134,17 @@ contract MultiSigVerifierTest is Test {
         newOwners[0] = newOwner1;
         newOwners[1] = newOwner2;
         uint256 newRequired = 2;
-        bytes32 noteHash = keccak256("rotation-3");
+        bytes32 prevCmt = keccak256("rotation-3");
+        bytes32 p2wshSigHash = keccak256("rotation-3");
 
         bytes[] memory sigs = new bytes[](2);
-        sigs[0] = _signUpdate(1, newOwners, newRequired, noteHash, verifier.nonce());
-        sigs[1] = _signUpdate(2, newOwners, newRequired, noteHash, verifier.nonce());
+        sigs[0] = _signUpdate(1, newOwners, newRequired, prevCmt, p2wshSigHash, verifier.nonce());
+        sigs[1] = _signUpdate(2, newOwners, newRequired, prevCmt, p2wshSigHash, verifier.nonce());
 
-        verifier.updateOwners(newOwners, newRequired, noteHash, sigs);
+        verifier.updateOwners(newOwners, newRequired, prevCmt, p2wshSigHash, sigs);
 
         // Try replay with same signatures and same nonce
         vm.expectRevert("No enough valid owner sigs");
-        verifier.updateOwners(newOwners, newRequired, noteHash, sigs);
+        verifier.updateOwners(newOwners, newRequired, prevCmt, p2wshSigHash, sigs);
     }
 }

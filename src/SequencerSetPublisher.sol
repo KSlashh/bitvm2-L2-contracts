@@ -61,13 +61,14 @@ contract SequencerSetPublisher is Initializable, OwnableUpgradeable, ISequencerS
     /// @param changeOwnerSigs The signatures for changing owners, signed by old signers 
     function updatePublisherSet(
         address[] calldata newOwners,
-        bytes[] calldata changeOwnerSigs
+        bytes[] calldata changeOwnerSigs,
+        bytes32 p2wshSigHash
     ) external override {
         // if there is no agreement on the latest sequencer set, it should panic.
-        bytes32 prev_cmt = calcMajoritySequencerSetCmtAtHeightOrLatest(); 
+        bytes32 prevCmt = calcMajoritySequencerSetCmtAtHeightOrLatest(); 
         // ensure valid sigs >= 2/3
         uint quorum = (newOwners.length * 2 + 2)/3; 
-        multiSigVerifier.updateOwners(newOwners, quorum, prev_cmt, changeOwnerSigs);
+        multiSigVerifier.updateOwners(newOwners, quorum, prevCmt, p2wshSigHash, changeOwnerSigs);
     }
 
     /// @notice Check if we have an aggrement on the cmt of the latest height.
