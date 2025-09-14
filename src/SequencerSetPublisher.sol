@@ -16,6 +16,8 @@ contract SequencerSetPublisher is Initializable, OwnableUpgradeable, ISequencerS
     mapping(uint256 height => mapping(address publisher => bytes32 cmt)) public height_publisher_cmt;
     mapping(bytes32 cmt => uint cnt) cmt_cnt;
 
+    bytes32 constant INIT_CMT = keccak256("GOAT");
+
     uint256 public latest_height;
     MultiSigVerifier public multiSigVerifier;
 
@@ -71,7 +73,7 @@ contract SequencerSetPublisher is Initializable, OwnableUpgradeable, ISequencerS
     /// @notice Check if we have an aggrement on the cmt of the latest height.
     function calcMajoritySequencerSetCmtAtHeightOrLatest() public view returns (bytes32) {
         if (latest_height == 0) {
-            return bytes32("1");
+            return INIT_CMT;
         }
         address[] memory publishers = multiSigVerifier.getOwners();
         // Check if we have 2/3 publishers signed

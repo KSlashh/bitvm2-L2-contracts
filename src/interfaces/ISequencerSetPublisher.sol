@@ -17,8 +17,6 @@ interface ISequencerSetPublisher {
     error MismatchPublisher();
     error InvalidGOATHeight();
 
-    bytes32 constant MAGIC_CODE = keccak256("GOAT");
-
     function updateSequencerSet(
         SequencerSet calldata ss,
         bytes calldata signature
