@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: MIT
+ // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.28;
 
 import "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
@@ -8,9 +8,7 @@ import "@openzeppelin/contracts/utils/cryptography/MessageHashUtils.sol";
 
 import "./MultiSigVerifier.sol";
 import "./interfaces/ISequencerSetPublisher.sol";
-import "./libraries/EthSign.sol";
-
-import "forge-std/Test.sol";
+import "./Constants.sol";
 
 // Sequencer Set Publisher
 contract SequencerSetPublisher is
@@ -19,27 +17,30 @@ contract SequencerSetPublisher is
     ISequencerSetPublisher
 {
     using ECDSA for bytes32;
-    using EthSign for bytes;
     using MessageHashUtils for bytes32;
 
     mapping(uint256 height => mapping(address publisher => bytes32 cmt))
         public heightPublisherCmt;
     mapping(bytes32 cmt => uint cnt) cmtCnt;
-    mapping(address publisher => bytes pubkey) public publisherPubkeys;
-
-    bytes32 constant INIT_CMT = keccak256("GOAT");
+    mapping(address publisher => bytes pubkey) public publisherBTCPubkeys;    
 
     uint256 public latestHeight;
     MultiSigVerifier public multiSigVerifier;
 
     function initialize(
         address initialOwner,
-        address[] calldata initPublishers
+        address[] calldata initPublishers,
+        bytes[] calldata initPublisherBTCPubkeys
     ) public initializer {
+        require(initPublisherBTCPubkeys.length == initPublishers.length, "Invalid Publishers");
         __Ownable_init(initialOwner);
         // ensure valid sigs >= 2/3
         uint quorum = (initPublishers.length * 2 + 2) / 3;
         latestHeight = 0;
+        for (uint i = 0; i < initPublisherBTCPubkeys.length; i++) {
+            assert(initPublisherBTCPubkeys[i].length == 33);
+            publisherBTCPubkeys[initPublishers[i]] = initPublisherBTCPubkeys[i];
+        }
         multiSigVerifier = new MultiSigVerifier(initPublishers, quorum);
     }
 
@@ -85,22 +86,15 @@ contract SequencerSetPublisher is
     }
 
     /// @notice Update publishers.
-    /// @param newPublisherPubkeys The new publisher's public key
+    /// @param newPublisherBTCPubkeys The new publisher's BTC public key
     /// @param changeOwnerSigs The signatures for changing owners, co-signed by old signers
     /// @param p2wshSigHash The p2wsgh sighash of publisher change BTC transaction, co-signed by old signers
     function updatePublisherSet(
-        bytes[] calldata newPublisherPubkeys,
+        address[] calldata newPublishers,
+        bytes[] calldata newPublisherBTCPubkeys,
         bytes[] calldata changeOwnerSigs,
         bytes32 p2wshSigHash
     ) external override {
-        address[] memory newPublishers = new address[](
-            newPublisherPubkeys.length
-        );
-        for (uint i = 0; i < newPublisherPubkeys.length; i++) {
-            newPublishers[i] = newPublisherPubkeys[i].recover();
-            console.log("publishers", newPublishers[i]);
-            publisherPubkeys[newPublishers[i]] = newPublisherPubkeys[i];
-        }
         // if there is no agreement on the latest sequencer set, it should panic.
         bytes32 prevCmt = calcMajoritySequencerSetCmtAtHeightOrLatest();
         // ensure valid sigs >= 2/3
@@ -112,6 +106,10 @@ contract SequencerSetPublisher is
             p2wshSigHash,
             changeOwnerSigs
         );
+        for (uint i = 0; i < newPublisherBTCPubkeys.length; i++) {
+            assert(newPublisherBTCPubkeys[i].length == 33);
+            publisherBTCPubkeys[newPublishers[i]] = newPublisherBTCPubkeys[i];
+        }
     }
 
     /// @notice Check if we have an aggrement on the cmt of the latest height.
@@ -121,7 +119,7 @@ contract SequencerSetPublisher is
         returns (bytes32)
     {
         if (latestHeight == 0) {
-            return INIT_CMT;
+            return Constants.magic_bytes;
         }
         address[] memory publishers = multiSigVerifier.getOwners();
         // Check if we have 2/3 publishers signed
