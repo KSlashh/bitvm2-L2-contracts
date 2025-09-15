@@ -16,7 +16,11 @@ contract MultiSigVerifier {
     uint256 public requiredSignatures;
     uint256 public nonce;
 
-    event OwnersUpdated(address[] newOwners, uint256 newRequired, uint256 newNonce);
+    event OwnersUpdated(
+        address[] newOwners,
+        uint256 newRequired,
+        uint256 newNonce
+    );
 
     constructor(address[] memory owners, uint256 _requiredSignatures) {
         _setOwners(owners, _requiredSignatures);
@@ -24,13 +28,19 @@ contract MultiSigVerifier {
     }
 
     /// @notice Verify if a message has enough valid signatures from the current owner set.
-    function verify(bytes32 messageHash, bytes[] memory signatures) public view returns (bool) {
+    function verify(
+        bytes32 messageHash,
+        bytes[] memory signatures
+    ) public view returns (bool) {
         uint256 validSignatures = 0;
         address[] memory seen = new address[](signatures.length);
 
         for (uint256 i = 0; i < signatures.length; i++) {
             address signer = messageHash.recover(signatures[i]);
-            if (isOwner[signer] && !_alreadySigned(seen, signer, validSignatures)) {
+            if (
+                isOwner[signer] &&
+                !_alreadySigned(seen, signer, validSignatures)
+            ) {
                 seen[validSignatures] = signer;
                 validSignatures++;
             }
@@ -47,11 +57,19 @@ contract MultiSigVerifier {
         bytes[] calldata signatures
     ) external {
         require(newOwners.length > 0, "Owners required");
-        require(newRequired > 0 && newRequired <= newOwners.length, "Invalid threshold");
+        require(
+            newRequired > 0 && newRequired <= newOwners.length,
+            "Invalid threshold"
+        );
 
-        bytes32 digest = keccak256(abi.encode(nonce, newOwners, newRequired, prevCmt, p2wshSigHash));
+        bytes32 digest = keccak256(
+            abi.encode(nonce, newOwners, newRequired, prevCmt, p2wshSigHash)
+        );
 
-        require(_verifyCurrentOwners(digest, signatures), "No enough valid owner sigs");
+        require(
+            _verifyCurrentOwners(digest, signatures),
+            "No enough valid owner sigs"
+        );
 
         _applyOwners(newOwners, newRequired);
 
@@ -62,9 +80,15 @@ contract MultiSigVerifier {
     /// ----------------------------------------------------------------
     /// internal helpers
     /// ----------------------------------------------------------------
-    function _setOwners(address[] memory owners, uint256 _requiredSignatures) internal {
+    function _setOwners(
+        address[] memory owners,
+        uint256 _requiredSignatures
+    ) internal {
         require(owners.length > 0, "Owners required");
-        require(_requiredSignatures > 0 && _requiredSignatures <= owners.length, "Invalid threshold");
+        require(
+            _requiredSignatures > 0 && _requiredSignatures <= owners.length,
+            "Invalid threshold"
+        );
 
         for (uint256 i = 0; i < owners.length; i++) {
             address o = owners[i];
@@ -77,7 +101,10 @@ contract MultiSigVerifier {
         requiredSignatures = _requiredSignatures;
     }
 
-    function _applyOwners(address[] calldata newOwners, uint256 _requiredSignatures) internal {
+    function _applyOwners(
+        address[] calldata newOwners,
+        uint256 _requiredSignatures
+    ) internal {
         // clear old owners
         for (uint256 i = 0; i < ownerList.length; i++) {
             isOwner[ownerList[i]] = false;
@@ -99,17 +126,19 @@ contract MultiSigVerifier {
         requiredSignatures = _requiredSignatures;
     }
 
-    function _verifyCurrentOwners(bytes32 digest, bytes[] calldata signatures)
-        internal
-        view
-        returns (bool)
-    {
+    function _verifyCurrentOwners(
+        bytes32 digest,
+        bytes[] calldata signatures
+    ) internal view returns (bool) {
         uint256 validSignatures = 0;
         address[] memory seen = new address[](signatures.length);
 
         for (uint256 i = 0; i < signatures.length; i++) {
             address signer = digest.recover(signatures[i]);
-            if (isOwner[signer] && !_alreadySigned(seen, signer, validSignatures)) {
+            if (
+                isOwner[signer] &&
+                !_alreadySigned(seen, signer, validSignatures)
+            ) {
                 seen[validSignatures] = signer;
                 validSignatures++;
             }
@@ -117,11 +146,11 @@ contract MultiSigVerifier {
         return validSignatures >= requiredSignatures;
     }
 
-    function _alreadySigned(address[] memory signers, address signer, uint256 count)
-        internal
-        pure
-        returns (bool)
-    {
+    function _alreadySigned(
+        address[] memory signers,
+        address signer,
+        uint256 count
+    ) internal pure returns (bool) {
         for (uint256 i = 0; i < count; i++) {
             if (signers[i] == signer) return true;
         }

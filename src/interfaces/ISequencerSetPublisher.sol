@@ -3,11 +3,11 @@ pragma solidity ^0.8.28;
 
 interface ISequencerSetPublisher {
     struct SequencerSet {
-        bytes32 sequencer_set_hash; // validator_hash
-        bytes32 publishers_hash; 
-        bytes32 p2wsh_sig_hash;
-        bytes32 next_sequencer_set_hash; // next_validator_hash
-        uint256 goat_block_number;
+        bytes32 sequencerSetHash; // validator_hash
+        bytes32 publishersHash; 
+        bytes32 p2wshSigHash;
+        bytes32 nextSequencerSetHash; // next_validator_hash
+        uint256 goatBlockNumber;
     }
 
     error P2WSHSignatureMismatch();
@@ -16,6 +16,8 @@ interface ISequencerSetPublisher {
     error InvalidQuorumSequencerSet();
     error MismatchPublisher();
     error InvalidGOATHeight();
+    error k256Decompress_Invalid_Length_Error();
+    error k256DeriveY_Invalid_Prefix_Error();
 
     function updateSequencerSet(
         SequencerSet calldata ss,
@@ -24,7 +26,7 @@ interface ISequencerSetPublisher {
 
      // Update publisher at once by multi-sig
     function updatePublisherSet(
-        address[] calldata newOwners,
+        bytes[] calldata newPublisherPubkeys,
         bytes[] calldata signatures,
         bytes32 p2wshSigHash
     ) external; 
