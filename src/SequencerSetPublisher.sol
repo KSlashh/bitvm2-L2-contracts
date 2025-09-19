@@ -9,7 +9,6 @@ import "@openzeppelin/contracts/utils/cryptography/MessageHashUtils.sol";
 import "./MultiSigVerifier.sol";
 import "./interfaces/ISequencerSetPublisher.sol";
 import "./Constants.sol";
-import "forge-std/console.sol";
 
 // Sequencer Set Publisher
 contract SequencerSetPublisher is
@@ -91,8 +90,6 @@ contract SequencerSetPublisher is
         sequencerCmtCnt[cmt] += 1;
         cmtSequencerSet[cmt] = ss;
         heightPublishers[ss.goatBlockNumber].push(msg.sender);
-        console.log("commit height", ss.goatBlockNumber);
-        console.logBytes32(cmt);
     }
 
     /// @notice Update publishers.
@@ -124,7 +121,7 @@ contract SequencerSetPublisher is
             bytes32 prevCmt = calcMajoritySequencerSetCmtAtHeightOrLatest(latestConfirmedHeight);
             SequencerSet storage prevSs = cmtSequencerSet[prevCmt];
             require(prevSs.nextPublishersHash == ss.publishersHash, InvalidPublisherSet());
-            // TODO: how should we check the sequencer set hash?
+            // TODO: we should check this when update sequencer set.  
             //require(prevSs.nextSequencerSetHash == ss.sequencerSetHash, InvalidSequencerSet());
         }
 
@@ -158,9 +155,6 @@ contract SequencerSetPublisher is
                 agreement = cmt;
             }
         }
-        console.log("height: ", height);
-        console.log("num", quorum);
-        console.log("total", publishers.length);
 
         require(
             quorum * 3 >= 2 * publishers.length,
