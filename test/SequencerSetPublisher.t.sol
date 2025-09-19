@@ -14,10 +14,13 @@ contract SequencerSetPublisherTest is Test {
     using MessageHashUtils for bytes32;
     using stdStorage for StdStorage;
 
-    SequencerSetPublisher publisher;
+    SequencerSetPublisher sspublisher;
 
     address owner = vm.addr(1);
     address[] initPublishers;
+    uint256[] batch;
+    uint256[] batch1;
+    uint256[] batch2;
 
     function _get_pubkey_from_prvkey(uint number) internal pure returns (bytes[] memory) {
         bytes[5] memory newPublisherPubkeysConstant;
@@ -37,24 +40,39 @@ contract SequencerSetPublisherTest is Test {
     } 
 
     function setUp() public {
-        uint[] memory keys = new uint[](3);
-        keys[0] = 11;
-        keys[1] = 12;
-        keys[2] = 13;
+        batch = new uint256[](3);
+        batch[0] = 11;
+        batch[1] = 12;
+        batch[2] = 13;
+   
+        batch1 = new uint256[](5);
+        batch1[0] = 21;
+        batch1[1] = 22;
+        batch1[2] = 23;
+        batch1[3] = 24;
+        batch1[4] = 25;
+
+
+        batch2 = new uint256[](4);
+        batch2[0] = 31;
+        batch2[1] = 32;
+        batch2[2] = 33;
+        batch2[3] = 34;
+
 
         initPublishers = new address[](3);
-        initPublishers[0] = vm.addr(keys[0]);
-        initPublishers[1] = vm.addr(keys[1]);
-        initPublishers[2] = vm.addr(keys[2]);
+        initPublishers[0] = vm.addr(batch[0]);
+        initPublishers[1] = vm.addr(batch[1]);
+        initPublishers[2] = vm.addr(batch[2]);
 
-        publisher = new SequencerSetPublisher();
+        sspublisher = new SequencerSetPublisher();
         
-        publisher.initialize(owner, initPublishers, _get_pubkey_from_prvkey(initPublishers.length));
+        sspublisher.initialize(owner, initPublishers, _get_pubkey_from_prvkey(initPublishers.length));
     }
 
     function testInitialize() public view {
         // Quorum should be ceil(2/3 * n)
-        MultiSigVerifier verifier = publisher.multiSigVerifier();
+        MultiSigVerifier verifier = sspublisher.multiSigVerifier();
         address[] memory owners = verifier.getOwners();
         assertEq(owners.length, 3);
         assertEq(owners[0], initPublishers[0]);
@@ -63,7 +81,7 @@ contract SequencerSetPublisherTest is Test {
     function run_publisher_update_test(
         uint256[] memory oldPublisherKeys,
         uint256[] memory newPublisherKeys,
-        bytes32 p2wshSigHash
+        uint256 height
     ) public {
         address[] memory oldPublishers = new address[](oldPublisherKeys.length);
         for (uint i = 0; i < oldPublisherKeys.length; i++) {
@@ -75,18 +93,15 @@ contract SequencerSetPublisherTest is Test {
             newPublishers[i] = vm.addr(newPublisherKeys[i]);
         }
 
-        bytes32 prevCmt = publisher
-            .calcMajoritySequencerSetCmtAtHeightOrLatest();
-        uint256 nonce = publisher.multiSigVerifier().nonce();
+        uint256 nonce = sspublisher.multiSigVerifier().nonce();
         uint newRequired = (newPublishers.length * 2 + 2) / 3;
         bytes32 digest = keccak256(
-            abi.encode(nonce, newPublishers, newRequired, prevCmt, p2wshSigHash)
+            abi.encode(nonce, newPublishers, newRequired)
         );
 
         bytes[] memory newPublisherPubkeys = _get_pubkey_from_prvkey(newPublishers.length);
 
         uint oldRequired = (oldPublishers.length * 2 + 2) / 3;
-
         bytes[] memory sigs = new bytes[](oldRequired);
         for (uint j = 0; j < oldRequired; j++) {
             (uint8 v, bytes32 r, bytes32 s) = vm.sign(
@@ -95,66 +110,68 @@ contract SequencerSetPublisherTest is Test {
             );
             sigs[j] = abi.encodePacked(r, s, v);
         }
+        console.log("height: ", height);
         vm.startPrank(oldPublishers[1]);
-        publisher.updatePublisherSet(newPublishers, newPublisherPubkeys, sigs, p2wshSigHash);
+        sspublisher.updatePublisherSet(newPublishers, newPublisherPubkeys, sigs, height);
         vm.stopPrank();
 
-        MultiSigVerifier verifier = publisher.multiSigVerifier();
+        MultiSigVerifier verifier = sspublisher.multiSigVerifier();
         address[] memory owners = verifier.getOwners();
         assertEq(owners[0], newPublishers[0]);
     }
 
     function testUpdatePublisherSet() public {
-        // New publishers
-        uint256[] memory batch = new uint256[](3);
-        batch[0] = 11;
-        batch[1] = 12;
-        batch[2] = 13;
-        run_sequencer_update_test(batch, 10, keccak256("commit1"));
+        // genesis sequencer set commit, publisher is not changed
+        run_sequencer_update_test(batch, batch, 10, keccak256("commit1"), keccak256("set1"), keccak256("set2"));
+        // publisher commit, sequencer set is not changed
+        run_sequencer_update_test(batch, batch1, 11, keccak256("commit2"), keccak256("set2"), keccak256("set2"));
+        // apply publisher update
+        assert(sspublisher.latestConfirmedHeight() == 0);
+        run_publisher_update_test(batch, batch1, 11);
+        assert(sspublisher.latestConfirmedHeight() == 11);
 
-        uint256[] memory batch1 = new uint256[](5);
-        batch1[0] = 21;
-        batch1[1] = 22;
-        batch1[2] = 23;
-        batch1[3] = 24;
-        batch1[4] = 25;
-        run_publisher_update_test(
-            batch,
-            batch1,
-            keccak256("publisher p2wsh sig hash")
-        );
-        run_sequencer_update_test(batch1, 12, keccak256("commit2"));
+        // sequencer set commit, publisher is not changed
+        run_sequencer_update_test(batch1, batch1, 12, keccak256("commit3"), keccak256("set2"), keccak256("set22"));
+        run_sequencer_update_test(batch1, batch1, 13, keccak256("commit3"), keccak256("set22"), keccak256("set3"));
+        // publisher commit, sequencer set is not changed
+        run_sequencer_update_test(batch1, batch2, 17, keccak256("commit4"), keccak256("set3"), keccak256("set3"));
+        // apply publisher update
+        assert(sspublisher.latestConfirmedHeight() == 11);
+        run_publisher_update_test(batch1, batch2, 17);
+        assert(sspublisher.latestConfirmedHeight() == 17);
 
-        uint256[] memory batch2 = new uint256[](3);
-        batch2[0] = 31;
-        batch2[1] = 32;
-        batch2[2] = 33;
-        run_publisher_update_test(batch1, batch2, keccak256("publisher p2wsh sig hash2"));
-        run_sequencer_update_test(batch2, 13, keccak256("commit3"));
+        // sequencer set commit, publisher is not changed
+        run_sequencer_update_test(batch2, batch2, 20, keccak256("commit5"), keccak256("set3"), keccak256("set4"));
     }
 
     function run_sequencer_update_test(
         uint256[] memory publisherKeys,
+        uint256[] memory nextPublisherKeys,
         uint256 height,
-        bytes32 commits
+        bytes32 p2wshSigHash,
+        bytes32 sequencerSetHash,
+        bytes32 nextSequencerSetHash
     ) public {
-        address[] memory oldPublishers = new address[](publisherKeys.length);
+        address[] memory publishers = new address[](publisherKeys.length);
         for (uint i = 0; i < publisherKeys.length; i++) {
-            oldPublishers[i] = vm.addr(publisherKeys[i]);
+            publishers[i] = vm.addr(publisherKeys[i]);
+        }
+        address[] memory nextPublishers = new address[](nextPublisherKeys.length);
+        for (uint i = 0; i < nextPublisherKeys.length; i++) {
+            nextPublishers[i] = vm.addr(nextPublisherKeys[i]);
         }
 
         ISequencerSetPublisher.SequencerSet memory ss = ISequencerSetPublisher
             .SequencerSet({
-                sequencerSetHash: keccak256("set1"),
-                nextSequencerSetHash: keccak256("set2"),
-                goatBlockNumber: height,
-                publishersHash: keccak256(
-                    abi.encodePacked(publisher.multiSigVerifier().getOwners())
-                ),
-                p2wshSigHash: commits.toEthSignedMessageHash()
+                sequencerSetHash: sequencerSetHash,
+                nextSequencerSetHash: nextSequencerSetHash,
+                publishersHash: keccak256(abi.encodePacked(publishers)),
+                nextPublishersHash: keccak256(abi.encodePacked(nextPublishers)),
+                p2wshSigHash: p2wshSigHash.toEthSignedMessageHash(),
+                goatBlockNumber: height
             });
 
-        uint oldRequired = (oldPublishers.length * 2 + 2) / 3;
+        uint oldRequired = (publishers.length * 2 + 2) / 3;
 
         for (uint i = 0; i < oldRequired; i++) {
             (uint8 v, bytes32 r, bytes32 s) = vm.sign(
@@ -162,21 +179,17 @@ contract SequencerSetPublisherTest is Test {
                 ss.p2wshSigHash
             );
             bytes memory sig = abi.encodePacked(r, s, v);
-            vm.startPrank(oldPublishers[i]);
-            publisher.updateSequencerSet(ss, sig);
+            vm.startPrank(publishers[i]);
+            sspublisher.updateSequencerSet(ss, sig);
             vm.stopPrank();
         }
     }
 
     function testUpdateSequencerSet() public {
         // New publishers
-        uint256[] memory batch = new uint256[](3);
-        batch[0] = 11;
-        batch[1] = 12;
-        batch[2] = 13;
-        run_sequencer_update_test(batch, 10, keccak256("commit1"));
-        run_sequencer_update_test(batch, 11, keccak256("commit2"));
-        run_sequencer_update_test(batch, 12, keccak256("commit3"));
-        run_sequencer_update_test(batch, 13, keccak256("commit4"));
+        run_sequencer_update_test(batch, batch, 10, keccak256("commit1"), keccak256("set1"), keccak256("set2"));
+        run_sequencer_update_test(batch, batch, 11, keccak256("commit2"), keccak256("set2"), keccak256("set3"));
+        run_sequencer_update_test(batch, batch, 12, keccak256("commit3"), keccak256("set3"), keccak256("set4"));
+        run_sequencer_update_test(batch, batch, 13, keccak256("commit4"), keccak256("set4"), keccak256("set5"));
     }
 }

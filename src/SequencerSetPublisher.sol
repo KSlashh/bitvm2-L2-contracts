@@ -9,6 +9,7 @@ import "@openzeppelin/contracts/utils/cryptography/MessageHashUtils.sol";
 import "./MultiSigVerifier.sol";
 import "./interfaces/ISequencerSetPublisher.sol";
 import "./Constants.sol";
+import "forge-std/console.sol";
 
 // Sequencer Set Publisher
 contract SequencerSetPublisher is
@@ -20,11 +21,14 @@ contract SequencerSetPublisher is
     using MessageHashUtils for bytes32;
 
     mapping(uint256 height => mapping(address publisher => bytes32 cmt))
-        public heightPublisherCmt;
-    mapping(bytes32 cmt => uint cnt) cmtCnt;
-    mapping(address publisher => bytes pubkey) public publisherBTCPubkeys;    
+        public heightSequencerCmt;
+    mapping(bytes32 cmt => uint cnt) sequencerCmtCnt;
+    mapping(uint256 height => address[]) heightPublishers;
 
-    uint256 public latestHeight;
+    mapping(address publisher => bytes pubkey) public publisherBTCPubkeys;    
+    mapping(bytes32 cmt => SequencerSet ss) public cmtSequencerSet;
+
+    uint256 public latestConfirmedHeight;
     MultiSigVerifier public multiSigVerifier;
 
     function initialize(
@@ -36,12 +40,13 @@ contract SequencerSetPublisher is
         __Ownable_init(initialOwner);
         // ensure valid sigs >= 2/3
         uint quorum = (initPublishers.length * 2 + 2) / 3;
-        latestHeight = 0;
+        latestConfirmedHeight = 0;
         for (uint i = 0; i < initPublisherBTCPubkeys.length; i++) {
             assert(initPublisherBTCPubkeys[i].length == 33);
             publisherBTCPubkeys[initPublishers[i]] = initPublisherBTCPubkeys[i];
         }
         multiSigVerifier = new MultiSigVerifier(initPublishers, quorum);
+        heightPublishers[0] = initPublishers;
     }
 
     /// @notice Publish a new sequencer set, which should be signed by the older publishers.
@@ -51,8 +56,8 @@ contract SequencerSetPublisher is
         SequencerSet calldata ss,
         bytes calldata signature
     ) external override {
-        require(ss.goatBlockNumber >= latestHeight, InvalidGOATHeight());
-        require(multiSigVerifier.isOwner(msg.sender), MismatchPublisher());
+        require(ss.goatBlockNumber >= latestConfirmedHeight, InvalidGOATHeight());
+        require(multiSigVerifier.isOwner(msg.sender), InvalidPublisherSet());
         require(
             msg.sender == ss.p2wshSigHash.recover(signature),
             P2WSHSignatureMismatch()
@@ -70,72 +75,97 @@ contract SequencerSetPublisher is
             abi.encodePacked(
                 ss.sequencerSetHash,
                 ss.nextSequencerSetHash,
-                ss.goatBlockNumber,
-                ss.publishersHash
+                ss.publishersHash,
+                ss.nextPublishersHash,
+                ss.p2wshSigHash,
+                ss.goatBlockNumber
             )
         );
         // Avoid double commit
         require(
-            heightPublisherCmt[ss.goatBlockNumber][msg.sender] == bytes32(0),
+            heightSequencerCmt[ss.goatBlockNumber][msg.sender] == bytes32(0),
             DoubleCommit()
         );
 
-        heightPublisherCmt[ss.goatBlockNumber][msg.sender] = cmt;
-        cmtCnt[cmt] += 1;
-        latestHeight = ss.goatBlockNumber;
+        heightSequencerCmt[ss.goatBlockNumber][msg.sender] = cmt;
+        sequencerCmtCnt[cmt] += 1;
+        cmtSequencerSet[cmt] = ss;
+        heightPublishers[ss.goatBlockNumber].push(msg.sender);
+        console.log("commit height", ss.goatBlockNumber);
+        console.logBytes32(cmt);
     }
 
     /// @notice Update publishers.
-    /// @param newPublisherBTCPubkeys The new publisher's BTC public key
-    /// @param changeOwnerSigs The signatures for changing owners, co-signed by old signers
-    /// @param p2wshSigHash The p2wsgh sighash of publisher change BTC transaction, co-signed by old signers
+    /// @param newPublishers The new publisher's address 
+    /// @param newPublisherBTCPubkeys The new publisher's compressed BTC public key
+    /// @param changePublisherSigs The signatures for changing owners, co-signed by old signers
     function updatePublisherSet(
         address[] calldata newPublishers,
         bytes[] calldata newPublisherBTCPubkeys,
-        bytes[] calldata changeOwnerSigs,
-        bytes32 p2wshSigHash
+        bytes[] calldata changePublisherSigs,
+        uint256 height 
     ) external override {
-        // if there is no agreement on the latest sequencer set, it should panic.
-        bytes32 prevCmt = calcMajoritySequencerSetCmtAtHeightOrLatest();
+        bytes32 cmt = calcMajoritySequencerSetCmtAtHeightOrLatest(height);
+        SequencerSet storage ss = cmtSequencerSet[cmt];
+        require(latestConfirmedHeight < height, InvalidGOATHeight());
+        require(height == ss.goatBlockNumber, InvalidGOATHeight());
+      
+        address[] memory publishers = multiSigVerifier.getOwners();
+        bytes32 expectedPublishersHash = keccak256(
+            abi.encodePacked(publishers)
+        );
+        require(
+            ss.publishersHash == expectedPublishersHash,
+            MismatchPublisher()
+        );
+
+        if (latestConfirmedHeight > 0) {
+            // check the continuality of the update chain
+            bytes32 prevCmt = calcMajoritySequencerSetCmtAtHeightOrLatest(latestConfirmedHeight);
+            SequencerSet storage prevSs = cmtSequencerSet[prevCmt];
+            require(prevSs.nextPublishersHash == ss.publishersHash, InvalidPublisherSet());
+            // TODO: how should we check the sequencer set hash?
+            //require(prevSs.nextSequencerSetHash == ss.sequencerSetHash, InvalidSequencerSet());
+        }
+
         // ensure valid sigs >= 2/3
         uint quorum = (newPublishers.length * 2 + 2) / 3;
-        multiSigVerifier.updateOwners(
-            newPublishers,
-            quorum,
-            prevCmt,
-            p2wshSigHash,
-            changeOwnerSigs
-        );
+        multiSigVerifier.updateOwners(newPublishers, quorum, changePublisherSigs);
+
         for (uint i = 0; i < newPublisherBTCPubkeys.length; i++) {
             assert(newPublisherBTCPubkeys[i].length == 33);
             publisherBTCPubkeys[newPublishers[i]] = newPublisherBTCPubkeys[i];
         }
+        latestConfirmedHeight = height;
     }
 
     /// @notice Check if we have an aggrement on the cmt of the latest height.
-    function calcMajoritySequencerSetCmtAtHeightOrLatest()
+    function calcMajoritySequencerSetCmtAtHeightOrLatest(uint256 height)
         public
         view
         returns (bytes32)
     {
-        if (latestHeight == 0) {
-            return Constants.magic_bytes;
-        }
-        address[] memory publishers = multiSigVerifier.getOwners();
+        require(height > 0, InvalidGOATHeight());
+        address[] memory publishers = heightPublishers[height];
+
         // Check if we have 2/3 publishers signed
-        bytes32 cmtOfMajority = 0;
-        uint num_majority = 0;
+        bytes32 agreement = 0;
+        uint quorum = 0;
         for (uint i = 0; i < publishers.length; i++) {
-            bytes32 cmt = heightPublisherCmt[latestHeight][publishers[i]];
-            if (cmt != bytes32(0) && cmtCnt[cmt] > num_majority) {
-                num_majority = cmtCnt[cmt];
-                cmtOfMajority = cmt;
+            bytes32 cmt = heightSequencerCmt[height][publishers[i]];
+            if (cmt != bytes32(0) && sequencerCmtCnt[cmt] > quorum) {
+                quorum = sequencerCmtCnt[cmt];
+                agreement = cmt;
             }
         }
+        console.log("height: ", height);
+        console.log("num", quorum);
+        console.log("total", publishers.length);
+
         require(
-            num_majority * 3 >= 2 * publishers.length,
+            quorum * 3 >= 2 * publishers.length,
             InvalidQuorumSequencerSet()
         );
-        return cmtOfMajority;
+        return agreement;
     }
 }

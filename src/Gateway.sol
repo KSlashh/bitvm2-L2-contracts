@@ -372,7 +372,7 @@ contract GatewayUpgradeable is BitvmPolicy {
         withdrawData.status = WithdrawStatus.Initialized;
         withdrawData.instanceId = instanceId;
         withdrawData.lockAmount = lockAmount;
-        withdrawData.btcBlockHeightAtWithdraw = bitcoinSPV.latestHeight();
+        withdrawData.btcBlockHeightAtWithdraw = bitcoinSPV.latestConfirmedHeight();
 
         emit InitWithdraw(instanceId, graphId, withdrawData.operatorAddress, peginData.peginAmountSats);
     }

@@ -77,12 +77,10 @@ contract MultiSigVerifierTest is Test {
         uint256 privKey,
         address[] memory newOwners,
         uint256 newRequired,
-        bytes32 prevCmt,
-        bytes32 p2wshSigHash,
         uint256 nonce
     ) internal pure returns (bytes memory sig) {
         bytes32 digest = keccak256(
-            abi.encode(nonce, newOwners, newRequired, prevCmt, p2wshSigHash)
+            abi.encode(nonce, newOwners, newRequired)
         );
 
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(privKey, digest);
@@ -95,8 +93,6 @@ contract MultiSigVerifierTest is Test {
         newOwners[0] = newOwner1;
         newOwners[1] = newOwner2;
         uint256 newRequired = 2;
-        bytes32 prevCmt = keccak256("rotation-1");
-        bytes32 p2wshSigHash = keccak256("rotation-1");
 
         // Sign with alice (privKey=1) and bob (privKey=2)
         bytes[] memory sigs = new bytes[](2);
@@ -104,24 +100,18 @@ contract MultiSigVerifierTest is Test {
             1,
             newOwners,
             newRequired,
-            prevCmt,
-            p2wshSigHash,
             verifier.nonce()
         );
         sigs[1] = _signUpdate(
             2,
             newOwners,
             newRequired,
-            prevCmt,
-            p2wshSigHash,
             verifier.nonce()
         );
 
         verifier.updateOwners(
             newOwners,
             newRequired,
-            prevCmt,
-            p2wshSigHash,
             sigs
         );
 
@@ -139,8 +129,6 @@ contract MultiSigVerifierTest is Test {
         newOwners[0] = newOwner1;
         newOwners[1] = newOwner2;
         uint256 newRequired = 2;
-        bytes32 prevCmt = keccak256("rotation-2");
-        bytes32 p2wshSigHash = keccak256("rotation-2");
 
         // Only Alice signs
         bytes[] memory sigs = new bytes[](1);
@@ -148,8 +136,6 @@ contract MultiSigVerifierTest is Test {
             1,
             newOwners,
             newRequired,
-            prevCmt,
-            p2wshSigHash,
             verifier.nonce()
         );
 
@@ -157,8 +143,6 @@ contract MultiSigVerifierTest is Test {
         verifier.updateOwners(
             newOwners,
             newRequired,
-            prevCmt,
-            p2wshSigHash,
             sigs
         );
     }
@@ -168,32 +152,24 @@ contract MultiSigVerifierTest is Test {
         newOwners[0] = newOwner1;
         newOwners[1] = newOwner2;
         uint256 newRequired = 2;
-        bytes32 prevCmt = keccak256("rotation-3");
-        bytes32 p2wshSigHash = keccak256("rotation-3");
 
         bytes[] memory sigs = new bytes[](2);
         sigs[0] = _signUpdate(
             1,
             newOwners,
             newRequired,
-            prevCmt,
-            p2wshSigHash,
             verifier.nonce()
         );
         sigs[1] = _signUpdate(
             2,
             newOwners,
             newRequired,
-            prevCmt,
-            p2wshSigHash,
             verifier.nonce()
         );
 
         verifier.updateOwners(
             newOwners,
             newRequired,
-            prevCmt,
-            p2wshSigHash,
             sigs
         );
 
@@ -202,8 +178,6 @@ contract MultiSigVerifierTest is Test {
         verifier.updateOwners(
             newOwners,
             newRequired,
-            prevCmt,
-            p2wshSigHash,
             sigs
         );
     }
