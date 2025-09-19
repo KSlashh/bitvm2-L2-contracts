@@ -684,4 +684,20 @@ contract GatewayUpgradeable is BitvmPolicy {
         require(committeeManagement.verifySignatures(unlock_digest, committeeSigs), "invalid committee signatures");
         stakeManagement.unlockStake(operator, amount);
     }
+
+    function parseBtcBlockHeader(bytes calldata rawHeader)
+    public
+    pure
+    returns (bytes32 blockHash, bytes32 merkleRoot)
+    {
+        return MerkleProof.parseBtcBlockHeader(rawHeader);
+    }
+
+    function verifyMerkleProof(bytes32 root, bytes32[] memory proof, bytes32 leaf, uint256 index)
+    public
+    pure
+    returns (bool)
+    {
+        return MerkleProof.verifyMerkleProof(root, proof, leaf, index);
+    }
 }
