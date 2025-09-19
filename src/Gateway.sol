@@ -1,10 +1,14 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.28;
 
+import "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
 import {EnumerableSet} from "@openzeppelin/contracts/utils/structs/EnumerableSet.sol";
 
 import {IBitcoinSPV} from "./interfaces/IBitcoinSPV.sol";
 import {IPegBTC} from "./interfaces/IPegBTC.sol";
+import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import {ICommitteeManagement} from "./interfaces/ICommitteeManagement.sol";
+import {IStakeManagement} from "./interfaces/IStakeManagement.sol";
 import {Converter} from "./libraries/Converter.sol";
 import {BitvmTxParser} from "./libraries/BitvmTxParser.sol";
 import {MerkleProof} from "./libraries/MerkleProof.sol";
@@ -12,30 +16,24 @@ import {MerkleProof} from "./libraries/MerkleProof.sol";
 contract BitvmPolicy {
     uint64 constant rateMultiplier = 10000;
 
-    uint64 public minStakeAmountSats;
-    uint64 public stakeRate;
     uint64 public minChallengeAmountSats;
-    uint64 public challengeRate;
-
     uint64 public minPeginFeeSats;
     uint64 public peginFeeRate;
     uint64 public minOperatorRewardSats;
     uint64 public operatorRewardRate;
-    uint64 public minChallengerRewardSats;
-    uint64 public challengerRewardRate;
-    uint64 public minDisproverRewardSats;
-    uint64 public disproverRewardRate;
 
-    function isValidStakeAmount(uint64 peginAmountSats, uint64 stakeAmountSats) public view returns (bool) {
-        return stakeAmountSats >= minStakeAmountSats + peginAmountSats * stakeRate / rateMultiplier;
-    }
+    uint64 public minStakeAmount;
+    uint64 public minChallengerReward;
+    uint64 public minDisproverReward;
+    uint64 public minSlashAmount;
 
-    function isValidChallengeAmount(uint64 peginAmountSats, uint64 challengeAmount) public view returns (bool) {
-        return challengeAmount >= minChallengeAmountSats + peginAmountSats * challengeRate / rateMultiplier;
-    }
+    // TODO Initializer & setters
+    // TODO: stake token?
 }
 
 contract GatewayUpgradeable is BitvmPolicy {
+    using ECDSA for bytes32;
+
     event BridgeInRequest(
         bytes16 indexed instanceId,
         address indexed depositorAddress,
@@ -76,13 +74,13 @@ contract GatewayUpgradeable is BitvmPolicy {
         bytes16 indexed instanceId,
         bytes16 indexed graphId,
         DisproveTxType disproveTxType,
-        uint256 nackIndex,
+        uint256 txnIndex,
         bytes32 challengeStartTxid,
         bytes32 challengeFinishTxid,
         address challengerAddress,
         address disproverAddress,
-        uint64 challengerRewardAmountSats,
-        uint64 disproverRewardAmountSats
+        uint64 challengerRewardAmount,
+        uint64 disproverRewardAmount
     );
 
     enum DisproveTxType {
@@ -138,7 +136,7 @@ contract GatewayUpgradeable is BitvmPolicy {
         bytes16 instanceId;
         address depositorAddress;
         uint64 peginAmountSats;
-        uint64[3] txnFees;
+        uint64[3] txnFees; // [ peginPrepare , peginComfirm  peginCancel ]
         Utxo[] userInputs;
         bytes32 userXonlyPubkey;
         string userChangeAddress;
@@ -159,20 +157,21 @@ contract GatewayUpgradeable is BitvmPolicy {
     }
 
     struct GraphData {
-        uint64 stakeAmountSats;
         bytes1 operatorPubkeyPrefix;
         bytes32 operatorPubkey;
         bytes32 peginTxid;
         bytes32 kickoffTxid;
         bytes32 take1Txid;
         bytes32 take2Txid;
-        bytes32 assertTimoutTxid;
         bytes32 commitTimoutTxid;
+        bytes32[] assertTimoutTxids;
         bytes32[] NackTxids;
     }
 
     IPegBTC public pegBTC;
     IBitcoinSPV public bitcoinSPV;
+    ICommitteeManagement public committeeManagement;
+    IStakeManagement public stakeManagement;
 
     uint256 public responseWindowBlocks = 200;
 
@@ -209,14 +208,67 @@ contract GatewayUpgradeable is BitvmPolicy {
     function getGraphData(bytes16 graphId) external view returns (GraphData memory) {
         return graphDataMap[graphId];
     }
+    // helpers
+
+    function verifyCommitteeSignatures(bytes32 msgHash, bytes[] memory signatures, address[] memory members)
+        public
+        pure
+        returns (bool)
+    {
+        address[] memory signers = new address[](signatures.length);
+        for (uint256 i = 0; i < signatures.length; i++) {
+            address signer = msgHash.recover(signatures[i]);
+            signers[i] = signer;
+        }
+        // require signers contains all members
+        for (uint256 i = 0; i < members.length; i++) {
+            bool found = false;
+            for (uint256 j = 0; j < signers.length; j++) {
+                if (members[i] == signers[j]) {
+                    found = true;
+                    break;
+                }
+            }
+            if (!found) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    function getPostPeginDigest(bytes16 instanceId, bytes32 peginTxid) public view returns (bytes32) {
+        bytes32 typeHash = keccak256("POST_PEGIN_DATA(address contract,bytes16 instanceId,bytes32 peginTxid)");
+        return keccak256(abi.encode(typeHash, address(this), instanceId, peginTxid));
+    }
+
+    function getPostGraphDigest(bytes16 instanceId, bytes16 graphId, GraphData calldata graphData)
+        public
+        view
+        returns (bytes32)
+    {
+        bytes32 typeHash =
+            keccak256("POST_GRAPH_DATA(address contract,bytes16 instanceId,bytes16 graphId,bytes32 graphDataHash)");
+        bytes32 graphDataHash = keccak256(abi.encode(graphData));
+        return keccak256(abi.encode(typeHash, address(this), instanceId, graphId, graphDataHash));
+    }
+
+    function getCancelWithdrawDigest(bytes16 graphId) public view returns (bytes32) {
+        bytes32 typeHash = keccak256("CANCEL_WITHDRAW(address contract,bytes16 graphId)");
+        return keccak256(abi.encode(typeHash, address(this), graphId));
+    }
+
+    function getUnlockStakeDigest(address operator, uint256 amount) public view returns (bytes32) {
+        bytes32 typeHash = keccak256("UNLOCK_OPERATOR_STAKE(address contract,address operator,uint256 amount)");
+        return keccak256(abi.encode(typeHash, address(this), operator, amount));
+    }
 
     modifier onlyCommittee() {
-        // TODO: only committee members can call this function
+        require(committeeManagement.isCommitteeMember(msg.sender), "only committee member can call");
         _;
     }
 
-    modifier onlyCommitteeOrOperator(bytes16 graphId) {
-        // TODO: only committee members or operator can call this function
+    modifier onlyOperator(bytes16 graphId) {
+        require(withdrawDataMap[graphId].operatorAddress == msg.sender, "only operator can call");
         _;
     }
 
@@ -280,8 +332,13 @@ contract GatewayUpgradeable is BitvmPolicy {
     function getCommitteePubkeys(bytes16 instanceId) public view returns (bytes32[] memory committeeXonlyPubkeys) {
         require(peginDataMap[instanceId].createdAt + responseWindowBlocks < block.number, "response window not expired");
         committeeXonlyPubkeys = getCommitteePubkeysUnsafe(instanceId);
-        // TODO: check whether the number of committee has reached the threshold
-        // TODO: key aggregation?
+        require(committeeXonlyPubkeys.length >= committeeManagement.quorumSize(), "not enough committee responses");
+    }
+
+    function getCommitteeAddresses(bytes16 instanceId) public view returns (address[] memory committeeAddresses) {
+        require(peginDataMap[instanceId].createdAt + responseWindowBlocks < block.number, "response window not expired");
+        committeeAddresses = peginDataMap[instanceId].committeeAddresses;
+        require(committeeAddresses.length >= committeeManagement.quorumSize(), "not enough committee responses");
     }
 
     function getCommitteePubkeysUnsafe(bytes16 instanceId)
@@ -318,8 +375,13 @@ contract GatewayUpgradeable is BitvmPolicy {
         require(
             MerkleProof.verifyMerkleProof(merkleRoot, peginProof.proof, peginTxid, peginProof.index), "unable to verify"
         );
-        // TODO: check commiitteeSigs
-        // TODO: check whether the number of committee has reached the threshold
+
+        // validate committeeSigs
+        bytes32 pegin_digest = getPostPeginDigest(instanceId, peginTxid);
+        require(
+            verifyCommitteeSignatures(pegin_digest, committeeSigs, getCommitteeAddresses(instanceId)),
+            "invalid committee signatures"
+        );
 
         // update storage
         peginData.status = PeginStatus.Withdrawbale;
@@ -341,12 +403,25 @@ contract GatewayUpgradeable is BitvmPolicy {
         GraphData calldata graphData,
         bytes[] calldata committeeSigs
     ) public onlyCommittee {
+        // check operator stake
+        // Note:committee should check operator's locked stake before pre-signed any graph txns
+        address operatorStakeAddress = stakeManagement.pubkeyToAddress(graphData.operatorPubkey);
+        require(operatorStakeAddress != address(0), "operator not registered");
+        require(stakeManagement.lockedStakeOf(operatorStakeAddress) >= minStakeAmount, "insufficient operator stake");
+
+        // check committeeSigs
+        bytes32 graph_digest = getPostGraphDigest(instanceId, graphId, graphData);
+        require(
+            verifyCommitteeSignatures(graph_digest, committeeSigs, getCommitteeAddresses(instanceId)),
+            "invalid committee signatures"
+        );
+
+        // check graph data
         require(graphDataMap[graphId].peginTxid == 0, "graph data already posted");
         PeginDataInner storage peginData = peginDataMap[instanceId];
         require(graphData.peginTxid == peginData.peginTxid, "graph data pegin txid mismatch");
-        require(isValidStakeAmount(peginData.peginAmountSats, graphData.stakeAmountSats), "insufficient stake amount");
-        // TODO: validate committeeSigs
 
+        // store graph data
         graphDataMap[graphId] = graphData;
         instanceIdToGraphIds[instanceId].push(graphId);
     }
@@ -377,7 +452,7 @@ contract GatewayUpgradeable is BitvmPolicy {
         emit InitWithdraw(instanceId, graphId, withdrawData.operatorAddress, peginData.peginAmountSats);
     }
 
-    function cancelWithdraw(bytes16 graphId) external onlyCommitteeOrOperator(graphId) {
+    function cancelWithdraw(bytes16 graphId) external onlyOperator(graphId) {
         WithdrawData storage withdrawData = withdrawDataMap[graphId];
         PeginDataInner storage peginData = peginDataMap[withdrawData.instanceId];
         require(withdrawData.status == WithdrawStatus.Initialized, "invalid withdraw index: not at init stage");
@@ -385,6 +460,23 @@ contract GatewayUpgradeable is BitvmPolicy {
         pegBTC.transfer(msg.sender, withdrawData.lockAmount);
         peginData.status = PeginStatus.Withdrawbale;
 
+        emit CancelWithdraw(withdrawData.instanceId, graphId, msg.sender);
+    }
+
+    function conmmitteeCancelWithdraw(bytes16 graphId, bytes[] calldata committeeSigs) external onlyCommittee {
+        // validate committeeSigs
+        WithdrawData storage withdrawData = withdrawDataMap[graphId];
+        bytes32 cancel_digest = getCancelWithdrawDigest(graphId);
+        require(
+            verifyCommitteeSignatures(cancel_digest, committeeSigs, getCommitteeAddresses(withdrawData.instanceId)),
+            "invalid committee signatures"
+        );
+        // update storage
+        PeginDataInner storage peginData = peginDataMap[withdrawData.instanceId];
+        require(withdrawData.status == WithdrawStatus.Initialized, "invalid withdraw index: not at init stage");
+        withdrawData.status = WithdrawStatus.Canceled;
+        pegBTC.transfer(msg.sender, withdrawData.lockAmount);
+        peginData.status = PeginStatus.Withdrawbale;
         emit CancelWithdraw(withdrawData.instanceId, graphId, msg.sender);
     }
 
@@ -484,7 +576,7 @@ contract GatewayUpgradeable is BitvmPolicy {
     function finishWithdrawDisproved(
         bytes16 graphId,
         DisproveTxType disproveTxType,
-        uint256 nackIndex,
+        uint256 txnIndex, // nack txns index or assert timeout txns index, ignored for other disprove types
         BitvmTxParser.BitcoinTx calldata rawChallengeStartTx,
         MerkleProof.BitcoinTxProof calldata challengeStartTxProof,
         BitvmTxParser.BitcoinTx calldata rawChallengeFinishTx,
@@ -497,9 +589,10 @@ contract GatewayUpgradeable is BitvmPolicy {
         require(withdrawData.status != WithdrawStatus.Disproved, "already disproved");
 
         // verify ChallengeStart tx
-        (bytes32 challengeStartTxid, bytes32 kickoffTxid, address challengerAddress) =
+        (bytes32 challengeStartTxid, bytes32 kickoffTxid, uint32 kickoffVout, address challengerAddress) =
             BitvmTxParser.parseChallengeTx(rawChallengeStartTx);
         require(kickoffTxid == graphData.kickoffTxid, "ChallengeStartTx: kickoff txid mismatch");
+        require(kickoffVout == BitvmTxParser.CHALLENGE_CONNECTOR_VOUT, "ChallengeStartTx: kickoff vout mismatch");
         (bytes32 blockHash, bytes32 merkleRoot) = MerkleProof.parseBtcBlockHeader(challengeStartTxProof.rawHeader);
         require(
             bitcoinSPV.blockHash(challengeStartTxProof.height) == blockHash, "invalid header in challengeStartTxProof"
@@ -515,22 +608,26 @@ contract GatewayUpgradeable is BitvmPolicy {
         bytes32 challengeFinishTxid;
         address disproverAddress;
         if (disproveTxType == DisproveTxType.AssertTimeout) {
-            (challengeFinishTxid, disproverAddress) = BitvmTxParser.parseAssertTimeoutTx(rawChallengeFinishTx);
+            (challengeFinishTxid) = BitvmTxParser.parseAssertTimeoutTx(rawChallengeFinishTx);
+            require(graphData.assertTimoutTxids.length > txnIndex, "assert timeout tx index out of range");
             require(
-                challengeFinishTxid == graphData.assertTimoutTxid, "ChallengeFinishTx: assert timeout txid mismatch"
+                challengeFinishTxid == graphData.assertTimoutTxids[txnIndex],
+                "ChallengeFinishTx: assert timeout txid mismatch"
             );
         } else if (disproveTxType == DisproveTxType.OperatorCommitTimeout) {
-            (challengeFinishTxid, disproverAddress) = BitvmTxParser.parseCommitTimeoutTx(rawChallengeFinishTx);
+            (challengeFinishTxid) = BitvmTxParser.parseCommitTimeoutTx(rawChallengeFinishTx);
             require(
                 challengeFinishTxid == graphData.commitTimoutTxid, "ChallengeFinishTx: commit timeout txid mismatch"
             );
         } else if (disproveTxType == DisproveTxType.OperatorNack) {
-            (challengeFinishTxid, disproverAddress) = BitvmTxParser.parseNackTx(rawChallengeFinishTx);
-            require(graphData.NackTxids.length > nackIndex, "Nack tx index out of range");
-            require(challengeFinishTxid == graphData.NackTxids[nackIndex], "ChallengeFinishTx: nack txid mismatch");
+            (challengeFinishTxid) = BitvmTxParser.parseNackTx(rawChallengeFinishTx);
+            require(graphData.NackTxids.length > txnIndex, "Nack tx index out of range");
+            require(challengeFinishTxid == graphData.NackTxids[txnIndex], "ChallengeFinishTx: nack txid mismatch");
         } else if (disproveTxType == DisproveTxType.Disprove) {
-            (challengeFinishTxid, kickoffTxid, disproverAddress) = BitvmTxParser.parseDisproveTx(rawChallengeFinishTx);
+            (challengeFinishTxid, kickoffTxid, kickoffVout, disproverAddress) =
+                BitvmTxParser.parseDisproveTx(rawChallengeFinishTx);
             require(kickoffTxid == graphData.kickoffTxid, "ChallengeFinishTx: kickoffTxid txid mismatch");
+            require(kickoffVout == BitvmTxParser.DISPROVE_CONNECTOR_VOUT, "ChallengeFinishTx: kickoffVout mismatch");
         }
         (blockHash, merkleRoot) = MerkleProof.parseBtcBlockHeader(challengeFinishTxProof.rawHeader);
         require(bitcoinSPV.blockHash(challengeFinishTxProof.height) == blockHash, "invalid header in disproveProof");
@@ -542,31 +639,49 @@ contract GatewayUpgradeable is BitvmPolicy {
         );
         withdrawData.status = WithdrawStatus.Disproved;
 
-        // reward Challenger and Disprover
-        // Committee temporarily holds the Operator's forfeiture, which will be distributed to both Challenger and Disprover as a reward
-        uint64 peginAmountSats = peginDataMap[instanceId].peginAmountSats;
-        uint64 challengerRewardAmountSats =
-            minChallengerRewardSats + peginAmountSats * challengerRewardRate / rateMultiplier;
-        uint64 disproverRewardAmountSats =
-            minDisproverRewardSats + peginAmountSats * disproverRewardRate / rateMultiplier;
+        // slash Operator & reward Challenger and Disprover
+        IERC20 stakeToken = IERC20(stakeManagement.stakeTokenAddress());
+        address operatorStakeAddress = stakeManagement.pubkeyToAddress(graphData.operatorPubkey);
+        uint256 slashAmount = minSlashAmount;
+        uint256 operatorStake = stakeManagement.stakeOf(operatorStakeAddress);
+        if (operatorStake < slashAmount) slashAmount = operatorStake;
+        stakeManagement.slashStake(operatorStakeAddress, slashAmount);
+
+        uint64 challengerRewardAmount = minChallengerReward;
+        uint64 disproverRewardAmount = minDisproverReward;
         if (challengerAddress != address(0)) {
-            pegBTC.transfer(challengerAddress, Converter.amountFromSats(challengerRewardAmountSats));
+            stakeToken.transfer(challengerAddress, challengerRewardAmount);
         }
         if (disproverAddress != address(0)) {
-            pegBTC.transfer(disproverAddress, Converter.amountFromSats(disproverRewardAmountSats));
+            stakeToken.transfer(disproverAddress, disproverRewardAmount);
         }
 
         emit WithdrawDisproved(
             instanceId,
             graphId,
             disproveTxType,
-            nackIndex,
+            txnIndex,
             challengeStartTxid,
             challengeFinishTxid,
             challengerAddress,
             disproverAddress,
-            challengerRewardAmountSats,
-            disproverRewardAmountSats
+            challengerRewardAmount,
+            disproverRewardAmount
         );
+    }
+
+    /*
+        If an operator wants to unlockStake, they must prove to the committee 
+        that they have processed or discarded all graphs (for example, by spending the 
+        prekickoff-connector through another path). Once the committee members have verified 
+        this, they provide their signatures.
+    */
+    function unlockOperatorStake(address operator, uint256 amount, bytes[] calldata committeeSigs)
+        external
+        onlyCommittee
+    {
+        bytes32 unlock_digest = getUnlockStakeDigest(operator, amount);
+        require(committeeManagement.verifySignatures(unlock_digest, committeeSigs), "invalid committee signatures");
+        stakeManagement.unlockStake(operator, amount);
     }
 }
