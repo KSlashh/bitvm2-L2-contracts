@@ -195,3 +195,4 @@ contract SequencerSetPublisherTest is Test {
         run_sequencer_update_test(batch, batch, 13, keccak256("commit4"), keccak256("set4"), keccak256("set5"));
     }
 }
+

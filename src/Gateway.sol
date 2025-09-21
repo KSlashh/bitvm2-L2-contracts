@@ -44,7 +44,7 @@ contract GatewayUpgradeable is BitvmPolicy {
         string userChangeAddress,
         string userRefundAddress
     );
-    event CommitteeResponse(bytes16 indexed instanceId, address indexed committeeAddress, bytes32 committeeXonlyPubkey);
+    event CommitteeResponse(bytes16 indexed instanceId, address indexed committeeAddress, bytes committeePubkey);
     event BridgeIn(
         address indexed depositorAddress,
         bytes16 indexed instanceId,
@@ -128,6 +128,7 @@ contract GatewayUpgradeable is BitvmPolicy {
         // EnumerableMap
         address[] committeeAddresses;
         mapping(address value => uint256) committeeAddressPositions;
+        mapping(address => bytes1) committeePubkeyParitys; // even (0x02), odd (0x03)
         mapping(address => bytes32) committeeXonlyPubkeys;
     }
 
@@ -144,7 +145,7 @@ contract GatewayUpgradeable is BitvmPolicy {
         bytes32 peginTxid;
         uint256 createdAt;
         address[] committeeAddresses;
-        bytes32[] committeeXonlyPubkeys;
+        bytes[] committeePubkeys;
     }
 
     struct WithdrawData {
@@ -201,7 +202,7 @@ contract GatewayUpgradeable is BitvmPolicy {
             peginTxid: data.peginTxid,
             createdAt: data.createdAt,
             committeeAddresses: data.committeeAddresses,
-            committeeXonlyPubkeys: getCommitteePubkeysUnsafe(instanceId)
+            committeePubkeys: getCommitteePubkeysUnsafe(instanceId)
         });
     }
 
@@ -311,28 +312,34 @@ contract GatewayUpgradeable is BitvmPolicy {
         );
     }
 
-    function answerPeginRequest(bytes16 instanceId, bytes32 committeeXonlyPubkey) external onlyCommittee {
+    function answerPeginRequest(bytes16 instanceId, bytes memory committeePubkey) external onlyCommittee {
         PeginDataInner storage peginData = peginDataMap[instanceId];
         require(peginData.status == PeginStatus.Pending, "not a pending pegin request");
         require(peginData.createdAt + responseWindowBlocks >= block.number, "response window expired");
+        require(committeePubkey.length == 33, "invalid committee pubkey length");
+        bytes1 committeePubkeyParity = committeePubkey[0];
+        require(committeePubkeyParity == 0x02 || committeePubkeyParity == 0x03, "invalid committee pubkey parity");
+        bytes32 committeeXonlyPubkey;
+        assembly {
+            committeeXonlyPubkey := mload(add(committeePubkey, 0x21))
+        }
 
         address committeeAddress = msg.sender;
         if (peginData.committeeAddressPositions[committeeAddress] == 0) {
             peginData.committeeAddresses.push(committeeAddress);
             // The value is stored at length-1, but we add 1 to all indexes and use 0 as a sentinel value
             peginData.committeeAddressPositions[committeeAddress] = peginData.committeeAddresses.length;
-            peginData.committeeXonlyPubkeys[committeeAddress] = committeeXonlyPubkey;
-        } else {
-            peginData.committeeXonlyPubkeys[committeeAddress] = committeeXonlyPubkey;
         }
+        peginData.committeePubkeyParitys[committeeAddress] = committeePubkeyParity;
+        peginData.committeeXonlyPubkeys[committeeAddress] = committeeXonlyPubkey;
 
-        emit CommitteeResponse(instanceId, committeeAddress, committeeXonlyPubkey);
+        emit CommitteeResponse(instanceId, committeeAddress, committeePubkey);
     }
 
-    function getCommitteePubkeys(bytes16 instanceId) public view returns (bytes32[] memory committeeXonlyPubkeys) {
+    function getCommitteePubkeys(bytes16 instanceId) public view returns (bytes[] memory committeePubkeys) {
         require(peginDataMap[instanceId].createdAt + responseWindowBlocks < block.number, "response window not expired");
-        committeeXonlyPubkeys = getCommitteePubkeysUnsafe(instanceId);
-        require(committeeXonlyPubkeys.length >= committeeManagement.quorumSize(), "not enough committee responses");
+        committeePubkeys = getCommitteePubkeysUnsafe(instanceId);
+        require(committeePubkeys.length >= committeeManagement.quorumSize(), "not enough committee responses");
     }
 
     function getCommitteeAddresses(bytes16 instanceId) public view returns (address[] memory committeeAddresses) {
@@ -341,16 +348,14 @@ contract GatewayUpgradeable is BitvmPolicy {
         require(committeeAddresses.length >= committeeManagement.quorumSize(), "not enough committee responses");
     }
 
-    function getCommitteePubkeysUnsafe(bytes16 instanceId)
-        public
-        view
-        returns (bytes32[] memory committeeXonlyPubkeys)
-    {
+    function getCommitteePubkeysUnsafe(bytes16 instanceId) public view returns (bytes[] memory committeePubkeys) {
         PeginDataInner storage peginData = peginDataMap[instanceId];
-        committeeXonlyPubkeys = new bytes32[](peginData.committeeAddresses.length);
+        committeePubkeys = new bytes[](peginData.committeeAddresses.length);
         for (uint256 i = 0; i < peginData.committeeAddresses.length; ++i) {
             address committeeAddress = peginData.committeeAddresses[i];
-            committeeXonlyPubkeys[i] = peginData.committeeXonlyPubkeys[committeeAddress];
+            bytes1 parity = peginData.committeePubkeyParitys[committeeAddress];
+            bytes32 XonlyPubkeys = peginData.committeeXonlyPubkeys[committeeAddress];
+            committeePubkeys[i] = abi.encodePacked(parity, XonlyPubkeys);
         }
     }
 
