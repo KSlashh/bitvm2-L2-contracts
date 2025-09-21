@@ -21,8 +21,8 @@ contract SequencerSetPublisher is
 
     mapping(uint256 height => mapping(address publisher => bytes32 cmt))
         public heightSequencerCmt;
-    mapping(bytes32 cmt => uint cnt) sequencerCmtCnt;
-    mapping(uint256 height => address[]) heightPublishers;
+    mapping(bytes32 cmt => uint cnt) public sequencerCmtCnt;
+    mapping(uint256 height => address[]) public heightPublishers;
 
     mapping(address publisher => bytes pubkey) public publisherBTCPubkeys;    
     mapping(bytes32 cmt => SequencerSet ss) public cmtSequencerSet;

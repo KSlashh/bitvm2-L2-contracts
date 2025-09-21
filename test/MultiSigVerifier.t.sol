@@ -80,7 +80,7 @@ contract MultiSigVerifierTest is Test {
         uint256 nonce
     ) internal pure returns (bytes memory sig) {
         bytes32 digest = keccak256(
-            abi.encode(nonce, newOwners, newRequired)
+            abi.encodePacked(nonce, newOwners, newRequired)
         );
 
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(privKey, digest);

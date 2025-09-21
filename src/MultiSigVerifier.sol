@@ -61,13 +61,10 @@ contract MultiSigVerifier {
         );
 
         bytes32 digest = keccak256(
-            abi.encode(nonce, newOwners, newRequired)
+            abi.encodePacked(nonce, newOwners, newRequired)
         );
 
-        require(
-            _verifyCurrentOwners(digest, signatures),
-            "No enough valid owner sigs"
-        );
+        require(verify(digest, signatures), "No enough valid owner sigs");
 
         _applyOwners(newOwners, newRequired);
 
@@ -122,26 +119,6 @@ contract MultiSigVerifier {
 
         ownerCount = newOwners.length;
         requiredSignatures = _requiredSignatures;
-    }
-
-    function _verifyCurrentOwners(
-        bytes32 digest,
-        bytes[] calldata signatures
-    ) internal view returns (bool) {
-        uint256 validSignatures = 0;
-        address[] memory seen = new address[](signatures.length);
-
-        for (uint256 i = 0; i < signatures.length; i++) {
-            address signer = digest.recover(signatures[i]);
-            if (
-                isOwner[signer] &&
-                !_alreadySigned(seen, signer, validSignatures)
-            ) {
-                seen[validSignatures] = signer;
-                validSignatures++;
-            }
-        }
-        return validSignatures >= requiredSignatures;
     }
 
     function _alreadySigned(

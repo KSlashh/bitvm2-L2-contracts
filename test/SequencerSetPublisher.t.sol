@@ -5,6 +5,7 @@ import {ECDSA} from "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
 import "@openzeppelin/contracts/utils/cryptography/MessageHashUtils.sol";
 import "forge-std/Test.sol";
 import "../src/SequencerSetPublisher.sol";
+import "../src/interfaces/ISequencerSetPublisher.sol";
 import "../src/MultiSigVerifier.sol";
 import "../src/interfaces/ISequencerSetPublisher.sol";
 import "forge-std/console.sol";
@@ -62,6 +63,7 @@ contract SequencerSetPublisherTest is Test {
 
         initPublishers = new address[](3);
         initPublishers[0] = vm.addr(batch[0]);
+        console.log(batch[0]);
         initPublishers[1] = vm.addr(batch[1]);
         initPublishers[2] = vm.addr(batch[2]);
 
@@ -96,7 +98,7 @@ contract SequencerSetPublisherTest is Test {
         uint256 nonce = sspublisher.multiSigVerifier().nonce();
         uint newRequired = (newPublishers.length * 2 + 2) / 3;
         bytes32 digest = keccak256(
-            abi.encode(nonce, newPublishers, newRequired)
+            abi.encodePacked(nonce, newPublishers, newRequired)
         );
 
         bytes[] memory newPublisherPubkeys = _get_pubkey_from_prvkey(newPublishers.length);
